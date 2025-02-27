@@ -1,62 +1,68 @@
-name: pipeline
-on:
-  push:
-    branches:
-      - "main"
-permissions:
-  packages: write
-jobs:
-  # run-tests:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '20.x'
-  #     - name: Install dependencies
-  #       run: npm ci
-  #     - name: Test with Jest
-  #       run: npm test
-  
-  build-and-push-image:
-    runs-on: ubuntu-latest
-    # needs:
-    #   - run-tests
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: https://ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/adammmmd/testnext:latest
-            ghcr.io/adammmmd/testnext:${{ github.sha }}
-  
-  deploy:
-    runs-on: ubuntu-latest
-    needs:
-      - build-and-push-image
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - name: create env file
-        run: |
-          echo "GIT_COMMIT_HASH=${{ github.sha }}" >> ./envfile
-      - name: Docker Stack Deploy
-        uses: cssnr/stack-deploy-action@v1
-        with:
-          name: testnext
-          file: docker-compose.yaml
-          host: adammmmd.cloud
-          user: deploy
-          ssh_key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-          env_file: ./envfile
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - "--providers.docker"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.muhammadam90@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+    ports:
+      - mode: host
+        protocol: tcp
+        published: 80
+        target: 80
+      - mode: host
+        protocol: tcp
+        published: 443
+        target: 443
+    volumes:
+      - letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  nextjs:
+    image: ghcr.io/adammmmd/testnext:${GIT_COMMIT_HASH:-latest}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.nextjs.loadbalancer.server.port=3000"
+      - "traefik.http.routers.nextjs.rule=Host(`adammmmd.cloud`)"
+      - "traefik.http.routers.nextjs.entrypoints=websecure"
+      - "traefik.http.routers.nextjs.tls.certresolver=myresolver"
+    # environment:
+    #   - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db:5432/app
+    #   - NODE_ENV=production
+    # secrets:
+    #   - db-password
+    deploy:
+      update_config:
+        order: start-first
+    # depends_on:
+    #   - db
+
+  # db:
+  #   image: postgres:latest
+  #   user: postgres
+  #   volumes:
+  #     - db-data:/var/lib/postgresql/data
+  #   secrets:
+  #     - db-password
+  #   environment:
+  #     - POSTGRES_DB=app
+  #     - POSTGRES_PASSWORD_FILE=/run/secrets/db-password
+  #   healthcheck:
+  #     test: [ "CMD", "pg_isready" ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  # db-data:
+  letsencrypt:
+
+# secrets:
+#   db-password:
+#     external: true
