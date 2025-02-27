@@ -61,9 +61,9 @@ jobs:
     - name: Docker Stack Deploy
       uses: cssnr/stack-deploy-action@v1
       with:
-        name: zenfulstats
-        file: docker-stack.yaml
-        host: zenful.site
+        name: testnext
+        file: docker-compose.yaml
+        host: adammmmd.cloud
         user: deploy
         ssh_key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
         env_file: ./envfile
